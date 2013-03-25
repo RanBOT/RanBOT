@@ -1,0 +1,1748 @@
+Script("Name") = "RanBOT"
+Script("Author") = "Ran"
+Script("Major") = 2
+Script("Minor") = 0
+Script("Revision") = 1
+
+Public sql_rs
+Const sql_str = "DRIVER={SQL Server};SERVER=(local);DATABASE=database;uid=username;pwd=password;"
+
+Const runs_cmd = "games"
+Const runs_rank = 0
+Const last_cmd = "last"
+Const last_rank = 0
+Const name_cmd = "name"
+Const name_rank = 0
+Const info_cmd = "info"
+Const info_rank = 0
+Const view_cmd = "view"
+Const view_rank = 0
+Const top_cmd = "top"
+Const top_rank = 0
+Const pass_cmd = "pass"
+Const pass_rank = 0
+Const search_cmd = "search"
+Const search_rank = 8
+Const rules_cmd = "rules"
+Const rules_rank = 0
+Const help_cmd = "help"
+Const help_rank = 0
+Const runners_cmd = "runners"
+Const runners_rank = 0
+Const ranks_cmd = "ranks"
+Const ranks_rank = 0
+Const rank_cmd = "rank"
+Const rank_rank = 0
+Const runstat_cmd = "stats"
+Const runstat_rank = 0
+Const login_cmd = "login"
+Const login_rank = 3
+Const logout_cmd = "logout"
+Const logout_rank = 3
+Const ban_cmd = "b"
+Const ban_rank = 8
+Const unban_cmd = "unb"
+const unban_rank = 8
+Const op_cmd = "op"
+Const op_rank = 9
+Const setrank_cmd = "setrank"
+Const setrank_rank = 11
+
+Const name_len_min = 2
+Const name_len_max = 15
+Const top_entries = 8
+
+Const ran_runexp = 480
+Const ran_runmin = 115
+Const ran_diablo = "Dia"
+
+Const ran_guild_str = "(Guild)"
+
+Const ran_ban_ondal = 7200
+'Const ran_ban_nonladder = 600
+Const ran_ban_hardcore = 600
+Const ran_ban_product = 0
+Const ran_ban_lowlevel = 600
+
+Const ran_idlekick_time = 600
+Const ran_idlekick_rank = 3
+Const ran_min_level = 90
+Const ran_guild_level = 75
+Const ran_lvl_rank = 3
+Const ran_reserve_run = 3
+Const ran_master_rank = 11
+Const ran_viewall_rank = 8
+
+Sub Event_Load()
+	CreateObj "LongTimer", "update_profile"
+	update_profile.Interval = 900
+	update_profile.Enabled = True
+	
+	CreateObj "LongTimer", "run_check"
+	run_check.Interval = 10
+	run_check.Enabled = True
+	
+	CreateObj "LongTimer", "ban_check"
+	ban_check.Interval = 10
+	ban_check.Enabled = True
+	
+	CreateObj "LongTimer", "runner_check"
+	runner_check.Interval = 600
+	runner_check.Enabled = True
+	
+	CreateObj "LongTimer", "channel_check"
+	channel_check.Interval = 60
+	channel_check.Enabled = True
+	
+	AddChat vbRed, "Running RanBOT script by Ran on " & ScriptEngine() & " v" & ScriptEngineMajorVersion() & "." & ScriptEngineMinorVersion
+End Sub
+
+Function NowCalc(DateTime)
+	NowCalc = Year(DateTime) & "/" & Month(DateTime) & "/" & Day(DateTime) & " " & Hour(DateTime) & ":" & Minute(DateTime) & ":" & Second(DateTime)
+End Function
+
+Function isbanned(Account, Username)
+	Dim sql_con
+	Set sql_con = CreateObject("ADODB.Connection")
+	sql_con.Open(sql_str)
+	
+	Dim banner_id, banner_rank_id, banner_rank_name, banner_name, banner_reason
+	banner_id = 0
+	banner_rank_id = 0
+	banner_rank_name = ""
+	banner_name = ""
+	
+	Set sql_rs = CreateObject("ADODB.Recordset")
+	sql_rs.Open "SELECT id, reason, datetime, time FROM bans WHERE account='" & Replace(lcase(Username), "'", "''") & "' AND expired='0';", sql_con
+	
+	If Not sql_rs.EOF Then
+		banner_id = sql_rs.Fields(0).Value
+		banner_reason = sql_rs.Fields(1).Value
+		banner_datetime = sql_rs.Fields(2).Value
+		banner_time = sql_rs.Fields(3).Value
+		ban_time = banner_time - DateDiff("s", banner_datetime, NowCalc(Now()))
+		
+		Select Case True
+			Case ban_time >= 86400
+				time_str = "for " & Round(ban_time/86400) & " day(s)"
+			Case ban_time >= 3600
+				time_str = "for " & Round(ban_time/3690) & " hour(s)"
+			Case ban_time >= 60
+				time_str = "for " & Round(ban_time/60) & " min(s)"
+			Case ban_time > 0
+				time_str = "for " & ban_time & " sec(s)"
+			Case Else
+				time_str = "permanently"
+		End Select
+		
+		Set sql_rs = CreateObject("ADODB.Recordset")
+		sql_rs.Open "SELECT rank, name FROM users WHERE id=" & banner_id & ";", sql_con
+		
+		If ban_time = 0 Then
+			AddQ "/ignore *" & Account
+		End If
+		
+		If Not sql_rs.EOF Then
+			banner_rank_id = sql_rs.Fields(0).Value
+			banner_name = sql_rs.Fields(1).Value
+			
+			Set sql_rs = CreateObject("ADODB.Recordset")
+			sql_rs.Open "SELECT name FROM ranks WHERE id=" & banner_rank_id & ";", sql_con
+			
+			banner_rank_name = sql_rs.Fields(0).Value
+			
+			banner_name = banner_rank_name & " " & banner_name
+		Else
+			banner_name = BotVars.Username
+		End If
+		
+		If ban_time > 0 Then
+			AddQ "/ban *" & Account & " Banned " & time_str & " by " & banner_name & " [" & banner_reason & "]"
+		Else
+			AddQ "/ignore *" & Account
+		End If
+		
+		isbanned = True
+	Else
+		isbanned = False
+	End If
+	
+	sql_con.Close()
+End Function
+
+Sub listgame(Username, Game)
+	Dim sql_con
+	Set sql_con = CreateObject("ADODB.Connection")
+	sql_con.Open(sql_str)
+	
+	user_name = ""
+	user_id = 0
+	user_rank_id = 0
+	user_rank_name = ""
+
+	Set sql_rs = CreateObject("ADODB.Recordset")
+	sql_rs.Open "SELECT name, rank, id, guild FROM users WHERE account='" & Replace(lcase(Username), "'", "''") & "';", sql_con
+	user_name = sql_rs.Fields(0).Value
+	user_rank_id = sql_rs.Fields(1).Value
+	user_id = sql_rs.Fields(2).Value
+	guild = sql_rs.Fields(3).Value
+	
+	Set sql_rs = CreateObject("ADODB.Recordset")
+	sql_rs.Open "SELECT name FROM ranks WHERE id=" & user_rank_id & ";", sql_con
+	user_rank_name = sql_rs.Fields(0).Value
+	
+	If guild <> "" Then
+			user_rank_name = ran_guild_str & " " & user_rank_name
+	End If
+	
+	game_name = Game
+	game_num = ""
+	
+	Do Until Not isNumeric(Right(game_name, 1))
+		game_name = Left(game_name, Len(game_name) - 1)
+	Loop
+	
+	game_num = Replace(Game, game_name, "")
+	
+	Set sql_rs = CreateObject("ADODB.Recordset")
+	sql_rs.Open "SELECT id, name, num, DATEDIFF(second, time, GETDATE())/60, done FROM runs WHERE name='" & Replace(lcase(game_name), "'", "''") & "';", sql_con
+	If Not sql_rs.EOF Then
+		host_id = sql_rs.Fields(0).Value
+		If host_id <> user_id Then
+			host_game_name = sql_rs.Fields(1).Value
+			host_game_num = sql_rs.Fields(2).Value
+			host_game_time = sql_rs.Fields(3).Value
+			host_game_done = sql_rs.Fields(4).Value
+			
+			Set sql_rs = CreateObject("ADODB.Recordset")
+			sql_rs.Open "SELECT name, rank, account FROM users WHERE id=" & host_id & ";", sql_con
+			
+			host_name = sql_rs.Fields(0).Value
+			host_rank_id = sql_rs.Fields(1).Value
+			host_acc = sql_rs.Fields(2).Value
+			
+			Set sql_rs = CreateObject("ADODB.Recordset")
+			sql_rs.Open "SELECT name FROM ranks WHERE id=" & host_rank_id & ";", sql_con
+			host_rank_name = sql_rs.Fields(0).Value
+			
+			If host_rank_id >= ran_reserve_run OR host_game_time < 10 Then
+				Set sql_rs = CreateObject("ADODB.Recordset")
+				sql_rs.Open "SELECT id FROM runners WHERE id=" & user_id & ";", sql_con
+				
+				If Not sql_rs.EOF Then
+					AddQ "/w *" & Username & " Sorry " & user_rank_name & " " & user_name & ", but " & chr(34) & game_name & chr(34) & " is already reserved for " & host_rank_name & " " & host_name & " (*" & host_acc & "). You have been logged out."
+					sql_con.Execute("DELETE FROM runners WHERE id=" & user_id & ";")
+					AddQ "/f r " & Username
+				Else
+					AddQ "Sorry " & user_rank_name & " " & user_name & ", but " & chr(34) & game_name & chr(34) & " is already reserved for " & host_rank_name & " " & host_name & " (*" & host_acc & ")."
+				End If
+				
+				Exit Sub
+			Else
+				sql_con.Execute("DELETE FROM runs WHERE id=" & host_id & ";")
+			End If
+		End If
+	End If
+	
+
+	Set sql_rs = CreateObject("ADODB.Recordset")
+	sql_rs.Open "SELECT * FROM runs WHERE id=" & user_id & ";", sql_con
+	If Not sql_rs.EOF Then
+		sql_con.Execute("UPDATE runs SET name='" & game_name & "', num='" & game_num & "', time='" & Year(Date) & "/" & Month(Date) & "/" & Day(Date) & " " & Hour(Time) & ":" & Minute(Time) & ":" & Second(Time) & "', done=0 WHERE id=" & user_id & ";")
+	Else
+		sql_con.Execute("INSERT INTO runs VALUES (" & user_id & ", '" & game_name & "', '" & game_num & "', '" & Year(Date) & "/" & Month(Date) & "/" & Day(Date) & " " & Hour(Time) & ":" & Minute(Time) & ":" & Second(Time) & "', 0);")
+	End If
+	
+	Set sql_rs = CreateObject("ADODB.Recordset")
+	sql_rs.Open "SELECT id FROM runners WHERE id=" & user_id & ";", sql_con
+	
+	If Not sql_rs.EOF Then
+		AddQ "[ " & game_name & game_num & " ] by: [ " & user_rank_name & " " & user_name & " ]"
+	Else
+		AddQ "/me [ " & game_name & game_num & " ] by: [ " & user_rank_name & " " & user_name & " ]"
+	End If
+	
+	sql_con.Close()
+End Sub
+
+Sub Event_UserTalk(Username, Flags, Message, Ping)
+	Dim sql_con
+	Set sql_con = CreateObject("ADODB.Connection")
+	sql_con.Open(sql_str)
+	
+	name = ""
+	user_id = 0
+	rank_id = 0
+	rank_name = ""
+
+	Message = Trim(Message)
+	Dim Account
+	Account = Username
+	
+	If InStr(Username, "#") > 0 Then
+		temp_a = Split(Username, "#")
+		Username = temp_a(0)
+	End If
+	
+	'If InStr(Username, "@") > 0 Then
+	'	temp_a = Split(Username, "@")
+	'	Username = temp_a(0)
+	'End If
+	
+	Set sql_rs = CreateObject("ADODB.Recordset")
+	sql_rs.Open "SELECT users.name, users.rank, users.id, users.guild, ranks.name FROM users INNER JOIN ranks ON users.rank = ranks.id WHERE account='" & Replace(lcase(Username), "'", "''") & "';", sql_con
+	
+	If Not sql_rs.EOF Then
+		name = sql_rs.Fields(0).Value
+		rank_id = sql_rs.Fields(1).Value
+		user_id = sql_rs.Fields(2).Value
+		guild = sql_rs.Fields(3).Value
+		rank_name = sql_rs.Fields(4).Value
+					
+		sql_con.Execute("UPDATE users SET seendate='" & NowCalc(Now()) & "' WHERE account='" & Replace(lcase(Username), "'", "''") & "';")
+		
+		If rank_id < 0 Then
+			AddQ "/ignore *" & Account
+			Exit Sub
+		End If
+		
+		If guild <> "" Then
+			rank_name = ran_guild_str & " " & rank_name
+		End If
+	Else
+		'If Left(Message, 1) = BotVars.Trigger Then
+		'	AddQ "/kick *" & Account
+		'End If
+		Exit Sub
+	End If
+
+	If isbanned(Account, Username) Then
+		Exit Sub
+	End If
+	
+	If Left(Message, 1) = "!" Or Left(Message, 1) = "." Then
+		a = Split(Message, " ")
+		param = Replace(Replace(Message, a(0) & " ", "", 1, 1), "'", "''")
+
+		Select Case lcase(Replace(a(0), Left(Message, 1), "", 1, 1))
+			Case name_cmd
+				If rank_id >= name_rank Then
+					If UBound(a) < 1 Then
+						AddQ "Incorrect use of the " & BotVars.Trigger & name_cmd & " command. (ie. " & chr(34) & BotVars.Trigger & name_cmd & " Bob" & chr(34) & ")"
+						Exit Sub
+					End If
+					
+					If Len(param) < name_len_min OR Len(param) > name_len_max Then
+						AddQ "Sorry " & rank_name & " " & name & ", but your name has to be between " & name_len_min & "-" & name_len_max & " characters long!"
+						Exit Sub
+					End If
+					
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT ranks.name, users.name, users.account FROM users INNER JOIN ranks ON users.rank = ranks.id WHERE users.account='" & Replace(param, "'", "''") & "' OR users.name='" & Replace(param, "'", "''") & "';", sql_con
+					If Not sql_rs.EOF Then
+						If lcase(sql_rs.Fields(2).Value) <> lcase(Username) Then
+							AddQ "Sorry " & rank_name & " " & name & ", but that name is already being used by " & sql_rs.Fields(0).Value & " " & sql_rs.Fields(1).Value & "."
+							Exit Sub
+						End If
+					End If
+					
+					sql_con.Execute("UPDATE users SET name='" & param & "' WHERE account='" & Replace(Username, "'", "''") & "';")
+					AddQ rank_name & " " & name & " will be henceforth known as " & rank_name & " " & param & "."
+				Else
+					AddQ "Sorry " & rank_name & " " & name & ", but you're not authorized to use this command."
+				End If
+				
+			Case info_cmd
+				If rank_id >= info_rank Then
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT baal, chaos, baaltime, chaostime, lvl, joindate, post FROM users WHERE account='" & Replace(lcase(Username), "'", "''") & "';", sql_con
+
+					If (sql_rs.Fields(2).Value + sql_rs.Fields(3).Value) > 0 Then
+						RUNTIME =  int(((sql_rs.Fields(2).Value + sql_rs.Fields(3).Value)/60)/60) & "h" & int((sql_rs.Fields(2).Value + sql_rs.Fields(3).Value)/60) - int(((sql_rs.Fields(2).Value + sql_rs.Fields(3).Value)/60)/60)*60 & "m"
+					Else
+						RUNTIME = "none"
+					End If
+
+					If sql_rs.Fields(0).Value > 0 Then
+						BAALSEC = sql_rs.Fields(2).Value / sql_rs.Fields(0).Value
+						AVGB = int(BAALSEC/60) & "m" & int(BAALSEC - int(BAALSEC/60)*60) & "s"
+					Else
+						AVGB = "none"
+					End If
+
+					If sql_rs.Fields(1).Value > 0 Then
+						DIASEC = sql_rs.Fields(3).Value / sql_rs.Fields(1).Value
+						AVGD = int(DIASEC/60) & "m" & int(DIASEC - int(DIASEC/60)*60) & "s"
+					Else
+						AVGD = "none"
+					End If
+
+					If isDate(sql_rs.Fields(5).Value) = True Then
+						Select Case True
+							Case DateDiff("n", sql_rs.Fields(5).Value, Now()) = 0: Registered = "Now"
+							Case DateDiff("h", sql_rs.Fields(5).Value, Now()) = 0: Registered = DateDiff("n", sql_rs.Fields(5).Value, Now()) & " minutes ago"
+							Case DateDiff("d", sql_rs.Fields(5).Value, Now()) = 0: Registered = DateDiff("h", sql_rs.Fields(5).Value, Now()) & " hours ago"
+							Case DateDiff("d", sql_rs.Fields(5).Value, Now()) = 1: Registered = "Yesterday"
+							Case DateDiff("d", sql_rs.Fields(5).Value, Now()) > 1: Registered = DateDiff("d", sql_rs.Fields(5).Value, Now()) & " days ago"
+						End Select
+					Else
+						Registered = "ERROR"
+					End If
+					
+					AddQ "/me [ " & rank_name & " " & name & " | Posts: " & sql_rs.Fields(6).Value & " | Baal: " & sql_rs.Fields(0).Value & "(avg:" & AVGB & ")| " & ran_diablo & ": " & sql_rs.Fields(1).Value & "(avg:" & AVGD & ")| Runtime: " & RUNTIME & " | Highest lvl: " & sql_rs.Fields(4).Value & " | Joined: " & Registered & " ]"
+				Else
+					AddQ "Sorry " & rank_name & " " & name & ", but you're not authorized to use this command."
+				End If
+				
+			Case view_cmd
+				If rank_id >= view_rank Then
+					If UBound(a) < 1 Then
+						AddQ "Incorrect use of the " & BotVars.Trigger & view_cmd & " command. (ie. " & chr(34) & BotVars.Trigger & view_cmd & " account" & chr(34) & ")"
+						Exit Sub
+					End If
+					
+					viewName = Replace(Replace(Message, a(0) & " ", "", 1, 1), "'", "''")
+
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT account, name, rank, baal, chaos, baaltime, chaostime, lvl, joindate, seendate, guild, post FROM users WHERE guild='" & Replace(lcase(viewName), "'", "''") & "' OR account='" & Replace(lcase(viewName), "'", "''") & "' OR name='" & Replace(lcase(viewName), "'", "''") & "';", sql_con
+					If sql_rs.EOF Then
+						AddQ "/w *" & Account & " No user found by the name " & chr(34) & viewName & chr(34) & "."
+						Exit Sub
+					End If
+
+					view_account = sql_rs.Fields(0).Value
+					view_name = sql_rs.Fields(1).Value
+					view_rank_id = sql_rs.Fields(2).Value
+					view_rank_name = sql_rs.Fields(2).Value
+					view_baal = sql_rs.Fields(3).Value
+					view_chaos = sql_rs.Fields(4).Value
+					view_baaltime = sql_rs.Fields(5).Value
+					view_chaostime = sql_rs.Fields(6).Value
+					view_lvl = sql_rs.Fields(7).Value
+					view_joindate = sql_rs.Fields(8).Value
+					view_seendate = sql_rs.Fields(9).Value
+					view_guild = sql_rs.Fields(10).Value
+					view_posts = sql_rs.Fields(11).Value
+
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT name FROM ranks WHERE id=" & view_rank_id & ";", sql_con
+
+					view_rank_name = sql_rs.Fields(0).Value
+
+					If (view_baal + view_chaos) > 0 Then
+						RUNTIME =  int(((view_baaltime + view_chaostime)/60)/60) & "h" & int((view_baaltime + view_chaostime)/60) - int(((view_baaltime + view_chaostime)/60)/60)*60 & "m"
+					Else
+						RUNTIME = "none"
+					End If
+
+					If view_baal > 0 Then
+						BAALSEC = view_baaltime / view_baal
+						AVGB = int(BAALSEC/60) & "m" & int(BAALSEC - int(BAALSEC/60)*60) & "s"
+					Else
+						AVGB = "none"
+					End If
+
+					If view_chaos > 0 Then
+						DIASEC = view_chaostime / view_chaos
+						AVGD = int(DIASEC/60) & "m" & int(DIASEC - int(DIASEC/60)*60) & "s"
+					Else
+						AVGD = "none"
+					End If
+
+					If isDate(view_joindate) = True Then
+						Select Case True
+							Case DateDiff("n", view_joindate, Now()) = 0: joindate = "Now"
+							Case DateDiff("h", view_joindate, Now()) = 0: joindate = DateDiff("n", view_joindate, Now()) & " minutes ago"
+							Case DateDiff("d", view_joindate, Now()) = 0: joindate = DateDiff("h", view_joindate, Now()) & " hours ago"
+							Case DateDiff("d", view_joindate, Now()) = 1: joindate = "Yesterday"
+							Case DateDiff("d", view_joindate, Now()) > 1: joindate = DateDiff("d", view_joindate, Now()) & " days ago"
+						End Select
+					Else
+						joindate = "ERROR"
+					End If
+					
+					If isDate(view_seendate) = True Then
+						Select Case True
+							Case DateDiff("n", view_seendate, Now()) = 0: LastSeen = "Now"
+							Case DateDiff("h", view_seendate, Now()) = 0: LastSeen = DateDiff("n", view_seendate, Now()) & " minutes ago"
+							Case DateDiff("d", view_seendate, Now()) = 0: LastSeen = DateDiff("h", view_seendate, Now()) & " hours ago"
+							Case DateDiff("d", view_seendate, Now()) = 1: LastSeen = "Yesterday"
+							Case DateDiff("d", view_seendate, Now()) > 1: LastSeen = DateDiff("d", view_seendate, Now()) & " days ago"
+						End Select
+					Else
+						LastSeen = "ERROR"
+					End If
+					
+					If view_rank_id < 0 And rank_id < ran_viewall_rank Then
+						Set sql_rs = CreateObject("ADODB.Recordset")
+						sql_rs.Open "SELECT name FROM ranks WHERE id=" & ran_viewall_rank & ";", sql_con
+						
+						AddQ "/w *" & Account & " [ " & view_rank_name & " " & view_name & " (*" & view_account & ") | Last seen: " & LastSeen & " | (Stats for this user can only be viewed by a user of rank " & sql_rs.Fields(0).Value & " or higher.)]"
+					Else
+						If view_guild <> "" Then
+							view_rank_name = ran_guild_str & " " & view_rank_name
+						End If
+						
+						AddQ "/w *" & Account & " [ " & view_rank_name & " " & view_name & " (*" & view_account & ") | Last seen: " & LastSeen & " | Posts: " & view_posts & " | Baal: " & view_baal & "(avg:" & AVGB & ")| " & ran_diablo & ": " & view_chaos & "(avg:" & AVGD & ")| Runtime: " & RUNTIME & " | Highest lvl: " & view_lvl & " | Joined: " & joindate & " ]"
+					End If
+				Else
+					AddQ "Sorry " & rank_name & " " & name & ", but you're not authorized to use this command."
+				End If
+				
+			Case op_cmd
+				If rank_id >= op_rank Then
+					AddQ "/designate *" & Account
+					AddQ "/rejoin"
+				Else
+					AddQ "Sorry " & rank_name & " " & name & ", but you're not authorized to use this command."
+				End If
+				
+			Case pass_cmd
+				AddQ "Sorry " & rank_name & " " & name & ", but that command is a WHISPER type command. Try this instead: /w *" & BotVars.Username & " " & BotVars.Trigger & pass_cmd & " (new password)"
+				
+			Case top_cmd
+				If rank_id >= top_rank Then
+					Dim temp_rank, top_str, top_name, top_rank, top_stat
+					
+					top_str = ""
+					
+					top_name = ""
+					top_rank = 0
+					top_stat = 0
+					
+					If lcase(param) <> "baal" And lcase(param) <> lcase(ran_diablo) Then
+						AddQ "Unable to generate a toplist from " & chr(34) & param & chr(34) & ", valid params are " & chr(34) & "baal" & chr(34) & " and " & chr(34) & lcase(ran_diablo) & chr(34) & "."
+						Exit Sub
+					Else
+						If lcase(param) = lcase(ran_diablo) Then
+							param = "chaos"
+						End If
+					End If
+					
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT name, rank, " & lcase(param) & " FROM users ORDER BY " & lcase(param) & " DESC;", sql_con
+						
+					For i=1 To top_entries
+						top_name = sql_rs.Fields(0).Value
+						top_rank = sql_rs.Fields(1).Value
+						top_stat = sql_rs.Fields(2).Value
+						
+						If top_rank >= 0 Then
+							Set temp_rank = CreateObject("ADODB.Recordset")
+							temp_rank.Open "SELECT name FROM ranks WHERE id=" & top_rank & ";", sql_con
+							
+							top_rank = temp_rank.Fields(0).Value
+							If i > 1 Then
+								top_str = top_str & ", "
+							End If
+	
+							top_str = top_str & top_rank & " " & top_name & " (" & top_stat & ")"
+						Else
+							i = i - 1
+						End If
+						sql_rs.MoveNext
+					Next
+					
+					AddQ top_str
+				Else
+					AddQ "Sorry " & rank_name & " " & name & ", but you're not authorized to use this command."
+				End If
+				
+			Case runs_cmd
+				If rank_id >= runs_rank Then
+					Dim runlist_str, runlist_count
+					runlist_str = ""
+					runlist_count = 0
+					
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT name + num, DATEDIFF(second, time, GETDATE())/60 , DATEDIFF(second, time, GETDATE()) - ((DATEDIFF(second, time, GETDATE())/60)*60) FROM runs WHERE done=0 ORDER BY DATEDIFF(second, time, GETDATE()) ASC;", sql_con
+					
+					While Not sql_rs.EOF						
+						runlist_str = runlist_str & ", " & sql_rs.Fields(0).Value & "(" & sql_rs.Fields(1).Value & "m" & sql_rs.Fields(2).Value & "s)"
+						runlist_count = runlist_count + 1
+						sql_rs.MoveNext
+					Wend
+					
+					If runlist_count > 0 Then
+						AddQ "/me " & runlist_count & " runs" & runlist_str
+					Else
+						AddQ "/me No runs in the past " & int(ran_runexp / 60) & " minutes."
+					End If
+				Else
+					AddQ "Sorry " & rank_name & " " & name & ", but you're not authorized to use this command."
+				End If
+				
+			Case search_cmd
+				If rank_id >= search_rank Then
+					Dim s_acc, s_name, s_rank_id, s_rank_name, s_str, s_count
+					s_count = 0
+					
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT account, name FROM users WHERE name LIKE '%" & param & "%' OR account LIKE '%" & param & "%';", sql_con
+					
+					While Not sql_rs.EOF
+						s_count = s_count + 1
+						s_acc = sql_rs.Fields(0).Value
+						s_name = sql_rs.Fields(1).Value
+						
+						If s_count > 1 Then
+							s_str = s_str & ", "
+						End If
+						
+						s_str = s_str & s_name & "(*" & s_acc & ")"
+						sql_rs.MoveNext
+					Wend
+					
+					If s_count > 10 Then
+						s_str = "Too many to display."
+					End If
+					
+					AddQ s_count & " results: " & s_str
+				Else
+					AddQ "Sorry " & rank_name & " " & name & ", but you're not authorized to use this command."
+				End If
+				
+			Case last_cmd
+				If rank_id >= last_rank Then
+					Dim run_name, run_num, run_time
+					
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT name, num, DATEDIFF(second, time, GETDATE()), done FROM runs WHERE id=" & user_id & ";", sql_con
+					
+					If Not sql_rs.EOF Then
+						run_name = sql_rs.Fields(0).Value
+						run_num = sql_rs.Fields(1).Value
+						run_time = sql_rs.Fields(2).Value
+						run_done = sql_rs.Fields(3).Value
+
+						Select Case True
+							Case run_time/60 < 1
+								run_made = Int(run_time) & " second(s) ago"
+							Case run_time/3600 < 1
+								run_made = Int(run_time/60) & " minute(s) ago"
+							Case run_time/86400 < 1
+								run_made = Int(run_time/3600) & " hour(s) ago"
+							Case Round(run_time/86400) = 1
+								run_made = "Yesterday"
+							Case Round(run_time/86400) > 1
+								run_made = Round(run_time/86400) & " day(s) ago"
+						End Select
+						
+						If run_done = -1 Then
+							run_done = "was never finished"
+						ElseIf run_done < ran_runmin Then
+							run_done = "did not last long enough"
+						Else
+							run_done = "lasted for " & run_done & " second(s)"
+						End If
+						
+						AddQ run_name & run_num & " was created " & run_made & " by " & rank_name & " " & name & " and it " & run_done & "."
+					Else
+						AddQ "No records of past runs made by " & rank_name & " " & name & "."
+					End If
+				Else
+					AddQ "Sorry " & rank_name & " " & name & ", but you're not authorized to use this command."
+				End If
+				
+			Case ban_cmd
+				If rank_id >= ban_rank Then
+					AddQ "Sorry " & rank_name & " " & name & ", but that is a WHISPER type command. Try this instead: /w *" & BotVars.Username & " " & BotVars.Trigger & ban_cmd & " account 7/day Botter"
+				Else
+					AddQ "Sorry " & rank_name & " " & name & ", but you're not authorized to use this command."
+				End If
+				
+			Case unban_cmd
+				If rank_id >= unban_rank Then
+					AddQ "Sorry " & rank_name & " " & name & ", but that is a WHISPER type command. Try this instead: /w *" & BotVars.Username & " " & BotVars.Trigger & unban_cmd & " account"
+				Else
+					AddQ "Sorry " & rank_name & " " & name & ", but you're not authorized to use this command."
+				End If
+				
+			Case setrank_cmd
+				ranked_acc = a(1)
+				setrank_msg = a(2)
+				
+				If rank_id >= setrank_rank Then
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT name, rank, id, account FROM users WHERE account='" & Replace(ranked_acc, "'", "''") & "';", sql_con
+					If Not sql_rs.EOF Then
+						ranked_name = sql_rs.Fields(0).Value
+						ranked_rank_id = sql_rs.Fields(1).Value
+						ranked_uid = sql_rs.Fields(2).Value
+						ranked_acc = sql_rs.Fields(3).Value
+						
+						If ranked_rank_id >= rank_id Then
+							Set sql_rs = CreateObject("ADODB.Recordset")
+							sql_rs.Open "SELECT name FROM ranks WHERE id=" & ranked_rank_id & ";", sql_con
+							ranked_rank_name = sql_rs.Fields(0).Value
+							AddQ "Sorry " & rank_name & " " & name & ", but you're not authorized to rank " & ranked_rank_name & " " & ranked_name & "."
+							Exit Sub
+						End If
+					Else
+						Set sql_rs = CreateObject("ADODB.Recordset")
+						sql_rs.Open "SELECT name, rank, id, account FROM users WHERE name='" & Replace(ranked_acc, "'", "''") & "';", sql_con
+						If Not sql_rs.EOF Then
+							ranked_name = sql_rs.Fields(0).Value
+							ranked_rank_id = sql_rs.Fields(1).Value
+							ranked_uid = sql_rs.Fields(2).Value
+							ranked_acc = sql_rs.Fields(3).Value
+							
+							If ranked_rank_id >= rank_id Then
+								Set sql_rs = CreateObject("ADODB.Recordset")
+								sql_rs.Open "SELECT name FROM ranks WHERE id=" & ranked_rank_id & ";", sql_con
+								ranked_rank_name = sql_rs.Fields(0).Value
+								AddQ "Sorry " & rank_name & " " & name & ", but you're not authorized to rank " & ranked_rank_name & " " & ranked_name & "."
+								Exit Sub
+							End If
+						Else
+							AddQ "Sorry " & rank_name & " " & name & ", but there is no such user as " & chr(34) & ranked_acc & chr(34) & "."
+							Exit Sub
+						End If
+					End If
+
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT name, id FROM ranks WHERE id=" & ranked_rank_id & ";", sql_con
+					ranked_rank_name = sql_rs.Fields(0).Value
+					
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					If Not isNumeric(setrank_msg) Then
+						AddChat vbGreen, "SELECT name, id FROM ranks WHERE name='" & Replace(setrank_msg, "'", "''") & "';"
+						sql_rs.Open "SELECT name, id FROM ranks WHERE name='" & Replace(setrank_msg, "'", "''") & "';", sql_con
+						
+						If sql_rs.EOF Then
+							AddQ "Sorry " & rank_name & " " & name & ", but there is no such rank as " & chr(34) & setrank_msg & chr(34) & "."
+							Exit Sub
+						End If
+					Else
+						Set sql_rs = CreateObject("ADODB.Recordset")
+						sql_rs.Open "SELECT name, id FROM ranks WHERE id=" & setrank_msg & ";", sql_con
+						
+						If sql_rs.EOF Then
+							AddQ "Sorry " & rank_name & " " & name & ", but there is no such rank as " & chr(34) & setrank_msg & chr(34) & "."
+							Exit Sub
+						End If
+					End If
+					
+					setrank_name = sql_rs.Fields(0).Value
+					setrank_id = sql_rs.Fields(1).Value
+					
+					sql_con.Execute("UPDATE users SET rank=" & setrank_id & " WHERE id=" & ranked_uid & ";")
+					AddQ ranked_rank_name & " " & ranked_name & " will be henceforth known as " & setrank_name & " " & ranked_name & "."
+				Else
+					AddQ "Sorry " & rank_name & " " & name & ", but you're not authorized to use this command."
+				End If
+				
+			Case login_cmd
+				If rank_id >= login_rank Or guild <> "" Then
+					If InStr(Account, "#") Then
+						AddQ "Sorry, but you can't login using a # account. (Account: " & Account & ")"
+						Exit Sub
+					End If
+					
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT id FROM runners WHERE id=" & user_id & ";", sql_con
+					
+					If sql_rs.EOF Then
+						AddQ "/f a " & Account
+						AddQ "Thank you for logging in " & rank_name & " " & name & ", be sure to use: /f a " & BotVars.Username
+						sql_con.Execute("INSERT INTO runners (id) VALUES (" & user_id & ");")
+					Else
+						AddQ "Sorry " & rank_name & " " & name & ", but you're already logged in as a runner."
+					End If
+				Else
+					AddQ "Sorry " & rank_name & " " & name & ", but you're not authorized to use this command."
+				End If
+			
+			Case logout_cmd
+				If rank_id >= logout_rank Or guild <> "" Then
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT id FROM runners WHERE id=" & user_id & ";", sql_con
+					
+					If sql_rs.EOF Then
+						AddQ "Sorry " & rank_name & " " & name & ", but you're not logged in as a runner."
+					Else
+						AddQ "/f r " & Account
+						AddQ "Thank you for logging out " & rank_name & " " & name & "."
+						sql_con.Execute("DELETE FROM runners WHERE id=" & user_id & ";")
+					End If
+				Else
+					AddQ "Sorry " & rank_name & " " & name & ", but you're not authorized to use this command."
+				End If
+				
+			Case rules_cmd
+				If rank_id >= rules_rank Then
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT value FROM misc WHERE name='rules';", sql_con
+					
+					AddQ "RULES: " & sql_rs.Fields(0).Value
+				Else
+					AddQ "Sorry " & rank_name & " " & name & ", but you're not authorized to use this command."
+				End If
+			
+			Case help_cmd
+				If rank_id >= help_rank Then
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT value FROM misc WHERE name='help';", sql_con
+					
+					AddQ "/w *" & Account & " Try these: " & Replace(sql_rs.Fields(0).Value, "{?}", BotVars.Trigger)
+				Else
+					AddQ "Sorry " & rank_name & " " & name & ", but you're not authorized to use this command."
+				End If
+			
+			Case runners_cmd
+				If rank_id >= runners_rank Then
+					runner_str = ""
+					
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT id FROM runners;", sql_con
+					
+					While Not sql_rs.EOF
+						runner_id = sql_rs.Fields(0).Value
+						
+						Set user_rs = CreateObject("ADODB.Recordset")
+						user_rs.Open "SELECT account, name, rank FROM users WHERE id=" & runner_id & ";", sql_con
+						
+						runner_acc = user_rs.Fields(0).Value
+						runner_name = user_rs.Fields(1).Value
+						runner_rank_id = user_rs.Fields(2).Value
+						
+						Set rank_rs = CreateObject("ADODB.Recordset")
+						rank_rs.Open "SELECT name FROM ranks WHERE id=" & runner_rank_id & ";", sql_con
+						
+						runner_rank_name = rank_rs.Fields(0).Value
+						
+						runner_str = runner_str & ", " & runner_rank_name & " " & runner_name & " (*" & runner_acc & ")"
+						
+						sql_rs.MoveNext
+					Wend
+					
+					AddQ "Currently logged runners" & runner_str & "."
+				Else
+					AddQ "Sorry " & rank_name & " " & name & ", but you're not authorized to use this command."
+				End If
+			
+			Case ranks_cmd
+				If rank_id >= ranks_rank Then
+					ranks_str = ""
+					ranks_count = 0
+					
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT name, runs FROM ranks ORDER BY id ASC;", sql_con
+					
+					While Not sql_rs.EOF
+						ranks_count = ranks_count + 1
+						If sql_rs.Fields(1).Value > 0 Then
+							ranks_str = ranks_str & ", " & sql_rs.Fields(0).Value & "(" & sql_rs.Fields(1).Value & ")"
+						Else
+							ranks_str = ranks_str & ", " & sql_rs.Fields(0).Value
+						End If
+						sql_rs.MoveNext
+					Wend
+					
+					AddQ ranks_count & " ranks" & ranks_str & "."
+				Else
+					AddQ "Sorry " & rank_name & " " & name & ", but you're not authorized to use this command."
+				End If
+			
+			Case runstat_cmd
+				If rank_id >= runstat_rank Then
+					If UBound(a) < 1 Then
+						AddQ "You must specify the name of the run to view! (ie. " & chr(34) & BotVars.Trigger & runstat_cmd & " ran-baal-" & chr(34) & ")"
+						Exit Sub
+					End If
+					
+					viewName = Replace(Replace(Message, a(0) & " ", "", 1, 1), "'", "''")
+					
+					Do Until Not isNumeric(Right(viewName, 1))
+						viewName = Left(viewName, Len(viewName) - 1)
+					Loop
+					
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT name, num, DATEDIFF(second, time, GETDATE()), done, id FROM runs WHERE name='" & viewName & "';", sql_con
+					
+					If Not sql_rs.EOF Then
+						run_name = sql_rs.Fields(0).Value
+						run_num = sql_rs.Fields(1).Value
+						run_time = sql_rs.Fields(2).Value
+						run_done = sql_rs.Fields(3).Value
+						runner_id = sql_rs.Fields(4).Value
+						
+						
+						Select Case True
+							Case run_time/60 < 1
+								run_made = Int(run_time) & " second(s) ago"
+							Case run_time/3600 < 1
+								run_made = Int(run_time/60) & " minute(s) ago"
+							Case run_time/86400 < 1
+								run_made = Int(run_time/3600) & " hour(s) ago"
+							Case Round(run_time/86400) = 1
+								run_made = "yesterday"
+							Case Round(run_time/86400) > 1
+								run_made = Round(run_time/86400) & " day(s) ago"
+						End Select
+						
+						If run_done = -1 Then
+							run_done = "was never finished"
+						ElseIf run_done < ran_runmin Then
+							run_done = "did not last long enough"
+						Else
+							run_done = "lasted for " & run_done & " seconds"
+						End If
+						
+						Set sql_rs = CreateObject("ADODB.Recordset")
+						sql_rs.Open "SELECT account, rank, name, guild, baal+chaos FROM users WHERE id=" & runner_id & ";", sql_con
+						
+						If Not sql_rs.EOF Then
+							runner_str = ""
+							
+							runner_account = sql_rs.Fields(0).Value
+							runner_rank_id = sql_rs.Fields(1).Value
+							runner_name = sql_rs.Fields(2).Value
+							runner_guild = sql_rs.Fields(3).Value
+							runner_runs = sql_rs.Fields(4).Value
+						
+							Set sql_rs = CreateObject("ADODB.Recordset")
+							sql_rs.Open "SELECT name FROM ranks WHERE id=" & runner_rank_id & ";", sql_con
+						
+							runner_rank_name = sql_rs.Fields(0).Value
+							
+							If runner_guild <> "" Then
+								runner_str = runner_str & ran_guild_str & " "
+							End If
+							
+							runner_str = runner_str & runner_rank_name & " " & runner_name & " (" & runner_runs & " runs)"
+						Else
+							runner_str = "(User Not Found)"
+						End If
+						
+						AddQ chr(34) & run_name & chr(34) & " belongs to " & runner_str & ", last run was " & run_name & run_num & " and it was created " & run_made & "."
+					Else
+						AddQ "No records of past runs under the name " & chr(34) & viewName & chr(34) & "."
+					End If
+				Else
+					AddQ "Sorry " & rank_name & " " & name & ", but you're not authorized to use this command."
+				End If
+			
+			Case rank_cmd
+				If rank_id >= rank_rank Then
+					rank_str = ""
+					
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT name, runs FROM ranks WHERE id>" & rank_id & " ORDER BY id ASC;", sql_con
+					
+					If Not sql_rs.EOF Then
+						rank_str = rank_str & "the next rank is called " & sql_rs.Fields(0).Value & " "
+						
+						If sql_rs.Fields(1).Value > 0 Then
+							rank_str = rank_str & "and it requires " & sql_rs.Fields(1).Value & " runs."
+						Else
+							rank_str = rank_str & "and it can't be automatically reached by making runs."
+						End If
+					Else
+						rank_str = rank_str & "your rank is the highest rank."
+					End If
+					
+					AddQ "Your rank is " & rank_name & ", " & rank_str
+				Else
+					AddQ "Sorry " & rank_name & " " & name & ", but you're not authorized to use this command."
+				End If
+			
+			Case Else
+				'AddQ "Sorry " & rank_name & " " & name & ", but that is not a valid command."
+		End Select
+	End If
+	
+	If Len(Message) <= 15 Then
+		If InStr(lcase(Message), "baal") > 0 OR InStr(lcase(Message), lcase(ran_diablo)) > 0 And InStr(lcase(Message), " ") = 0 Then
+			If IsNumeric(Right(Message, 1)) = False Then
+				Exit Sub
+			End If
+			
+			Game = lcase(Message)
+			For i=0 To 47
+				If i <> 45 And i <> 39 Then
+					If InStr(Game, chr(i)) > 0 Then
+						Exit Sub
+					End If
+				End If
+			Next
+			For i=58 To 64
+				If InStr(Game, chr(i)) > 0 Then
+					Exit Sub
+				End If
+			Next
+			For i=91 To 96
+				If i <> 95 Then
+					If InStr(Game, chr(i)) > 0 Then
+						Exit Sub
+					End If
+				End If
+			Next
+			For i=123 To 255
+				If InStr(Game, chr(i)) > 0 Then
+					Exit Sub
+				End If
+			Next
+			
+			Set sql_rs = CreateObject("ADODB.Recordset")
+			sql_rs.Open "SELECT id FROM runners WHERE id=" & user_id & ";", sql_con
+			
+			If Not sql_rs.EOF Then
+				AddQ "What are you doing " & rank_name & " " & name & "? Duh! You're logged in as a runner, you don't have to announce your runs!"
+			Else
+				Call listgame(Username, Game)
+			End If
+		End If
+	End If
+	
+	If Message = "0" Then
+		AddQ "Last hit for baal party! Don't attack baal if you're not in bp!"
+	End If
+	
+	sql_con.Close()
+End Sub
+
+Sub Event_WhisperFromUser(Username, Flags, Message, Ping)
+	Dim sql_con
+	Set sql_con = CreateObject("ADODB.Connection")
+	sql_con.Open(sql_str)
+	
+	name = ""
+	rank_id = ""
+	rank_name = ""
+	user_id = 0
+
+	Message = Trim(Message)
+	Dim Account
+	Account = Username
+	
+	If InStr(Username, "#") > 0 Then
+		temp_a = Split(Username, "#")
+		Username = temp_a(0)
+	End If
+	
+	'If InStr(Username, "@") > 0 Then
+	'	temp_a = Split(Username, "@")
+	'	Username = temp_a(0)
+	'End If
+	
+	Set sql_rs = CreateObject("ADODB.Recordset")
+	sql_rs.Open "SELECT name, rank, id FROM users WHERE account='" & Replace(lcase(Username), "'", "''") & "';", sql_con
+	If Not sql_rs.EOF Then
+		name = sql_rs.Fields(0).Value
+		rank_id = sql_rs.Fields(1).Value
+		user_id = sql_rs.Fields(2).Value
+
+		Set sql_rs = CreateObject("ADODB.Recordset")
+		sql_rs.Open "SELECT name FROM ranks WHERE id=" & rank_id & ";", sql_con
+
+		rank_name = sql_rs.Fields(0).Value
+	Else
+		Exit Sub
+	End If
+
+	a = Split(Message, " ")
+
+	If Left(Message, 1) = BotVars.Trigger Then
+		Select Case Replace(a(0), BotVars.Trigger, "", 1, 1)
+			Case pass_cmd
+				If rank_id >= pass_rank Then
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT id FROM users WHERE account='" & Replace(lcase(Username), "'", "''") & "' AND pass='';", sql_con
+					
+					If Not sql_rs.EOF Then
+						pass = Replace(Replace(Message, a(0) & " ", "", 1, 1), "'", "''")
+						sql_con.Execute("UPDATE users SET pass='" & pass & "' WHERE account='" & Replace(lcase(Username), "'", "''") & "';")
+						AddQ "/w *" & Account & " Thank you " & rank_name & " " & name & ", your RanBOT.net password has been set to " & chr(34) & pass & chr(34) & ". Logins: " & Username & " // " & pass
+					Else
+						AddQ "/w *" & Account & " Sorry " & rank_name & " " & name & ", but it seems that you've already set a RanBOT.net password, for security reasons you may not change it this way."
+					End If
+				Else
+					AddQ "/w *" & Account & " " & rank_name & " " & name & ", you're not authorized to use this command."
+				End If
+			Case ban_cmd
+				If rank_id >= ban_rank Then
+					Dim ban_acc, ban_name, ban_rank_id, ban_rank_name, ban_reason
+					
+					If UBound(a) < 3 Then
+						AddQ "/w *" & Account & " Incorrect use of the " & BotVars.Trigger & ban_cmd & " command. (Example: " & BotVars.Trigger & ban_cmd & " account 7/day Botter)"
+						Exit Sub
+					End If
+					
+					ban_acc = lcase(Replace(a(1), "*", ""))
+					ban_time = lcase(a(2))
+					ban_name = ""
+					ban_rank_id = 0
+					ban_rank_name = ""
+					ban_reason = Right(Message, Len(Message) - Len(a(0) & " " & a(1) & " " & a(2) & " "))
+					
+					If ban_acc = lcase(Username) Then
+						AddQ "/w *" & Account & " You can't ban yourself!"
+						Exit Sub
+					End If
+					
+					If InStr(ban_time, "/") > 0 Then
+						temp_a = Split(ban_time, "/")
+						
+						If Not IsNumeric(temp_a(0)) Then
+							AddQ "/w *" & Account & " " & chr(34) & temp_a(0) & chr(34) & " is not a number!"
+							Exit Sub
+						End If
+						
+						Select Case temp_a(1)
+							Case "day"
+								ban_time = int(temp_a(0)) * 86400
+							Case "hour"
+								ban_time = int(temp_a(0)) * 3600
+							Case "min"
+								ban_time = int(temp_a(0)) * 60
+							Case "sec"
+								ban_time = int(temp_a(0))
+							Case Else
+								AddQ "/w *" & Account & " " & chr(34) & temp_a(1) & chr(34) & " is not a valid type of time!"
+								Exit Sub
+						End Select
+					Else
+						AddQ "/w *" & Account & " You have to declare the type of time after the time! (" & ban_time & "/day OR " & ban_time & "/hour OR " & ban_time & "/min OR " & ban_time & "/sec)"
+						Exit Sub
+					End If
+					
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT name, rank FROM users WHERE account='" & ban_acc & "';", sql_con
+					If Not sql_rs.EOF Then
+						ban_name = sql_rs.Fields(0).Value
+						ban_rank_id = sql_rs.Fields(1).Value
+						If ban_rank_id >= rank_id Then
+							Set sql_rs = CreateObject("ADODB.Recordset")
+							sql_rs.Open "SELECT name FROM ranks WHERE id=" & ban_rank_id & ";", sql_con
+							ban_rank_name = sql_rs.Fields(0).Value
+							AddQ "/w *" & Account & " Sorry " & rank_name & " " & name & ", but you're not authorized to ban " & ban_rank_name & " " & ban_name & "."
+							Exit Sub
+						End If
+					End If
+
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT account, datetime, time, id, reason FROM bans WHERE account='" & ban_acc & "' AND expired='0';", sql_con
+					If Not sql_rs.EOF Then
+						banner_id = sql_rs.Fields(3).Value
+						banner_reason = sql_rs.Fields(4).Value
+						banner_datetime = sql_rs.Fields(1).Value
+						banner_time = sql_rs.Fields(2).Value
+						banner_timeleft = banner_time - DateDiff("s", banner_datetime, NowCalc(Now()))
+						
+						Select Case True
+							Case banner_timeleft >= 86400
+								banner_time_str = "for " & Round(banner_timeleft/86400) & " day(s)"
+							Case banner_timeleft >= 3600
+								banner_time_str = "for " & Round(banner_timeleft/3690) & " hour(s)"
+							Case banner_timeleft >= 60
+								banner_time_str = "for " & Round(banner_timeleft/60) & " min(s)"
+							Case banner_timeleft >= 0
+								banner_time_str = "for " & banner_timeleft & " sec(s)"
+							Case Else
+								banner_time_str = "permanently"
+						End Select
+						
+						
+						Set sql_rs = CreateObject("ADODB.Recordset")
+						sql_rs.Open "SELECT account, name, rank FROM users WHERE id='" & banner_id & "';", sql_con
+						If Not sql_rs.EOF Then
+							banner_acc = sql_rs.Fields(0).Value
+							banner_name = sql_rs.Fields(1).Value
+							banner_rank_id = sql_rs.Fields(2).Value
+							Set sql_rs = CreateObject("ADODB.Recordset")
+							sql_rs.Open "SELECT name FROM ranks WHERE id=" & banner_rank_id & ";", sql_con
+							banner_rank_name = sql_rs.Fields(0).Value
+							
+							AddQ "/w *" & Account & " (*" & ban_acc & ") is already banned " & banner_time_str & " by " & banner_rank_name & " " & banner_name & ". [Reason: " & banner_reason & "]"
+						Else
+							AddQ "/w *" & Account & " (*" & ban_acc & ") is already banned " & banner_time_str & " by (User Not Found). [Reason: " & banner_reason & "]"
+						End If
+					Else
+						sql_con.Execute("INSERT INTO bans (account, datetime, time, id, reason) VALUES ('" & Replace(ban_acc, "'", "''") & "', '" & NowCalc(Now()) & "', '" & ban_time & "', " & user_id & ", '" & Replace(ban_reason, "'", "''") & "');")
+						
+						Select Case True
+							Case ban_time >= 86400
+								time_str = Round(ban_time/86400) & " day(s)"
+							Case ban_time >= 3600
+								time_str = Round(ban_time/3690) & " hour(s)"
+							Case ban_time >= 60
+								time_str = Round(ban_time/60) & " min(s)"
+							Case Else
+								time_str = ban_time & " sec(s)"
+						End Select
+						
+						AddQ "/w *" & Account & " " & chr(34) & ban_acc & chr(34) & " has been banned for " & time_str & " by " & rank_name & " " & name & ". [Reason: " & ban_reason & "]"
+					End If
+				Else
+					AddQ "/w *" & Account & " Sorry " & rank_name & " " & name & ", but you're not authorized to use this command."
+				End If
+				
+			Case unban_cmd
+				If rank_id >= unban_rank Then
+					If UBound(a) < 1 Then
+						AddQ "/w *" & Account & " Incorrect use of the " & BotVars.Trigger & unban_cmd & " command. (Example: " & BotVars.Trigger & unban_cmd & " account)"
+						Exit Sub
+					End If
+					
+					ban_acc = lcase(Replace(a(1), "*", ""))
+					
+					Set sql_rs = CreateObject("ADODB.Recordset")
+					sql_rs.Open "SELECT account, datetime, time, id, reason FROM bans WHERE account='" & ban_acc & "' AND expired='0';", sql_con
+					If Not sql_rs.EOF Then
+						banner_id = sql_rs.Fields(3).Value
+						banner_reason = sql_rs.Fields(4).Value
+						banner_datetime = sql_rs.Fields(1).Value
+						banner_time = sql_rs.Fields(2).Value
+						banner_timeleft = banner_time - DateDiff("s", banner_datetime, NowCalc(Now()))
+						
+						Select Case True
+							Case banner_timeleft >= 86400
+								banner_time_str = Round(banner_timeleft/86400) & " day(s)"
+							Case banner_timeleft >= 3600
+								banner_time_str = Round(banner_timeleft/3690) & " hour(s)"
+							Case banner_timeleft >= 60
+								banner_time_str = Round(banner_timeleft/60) & " min(s)"
+							Case Else
+								banner_time_str = banner_timeleft & " sec(s)"
+						End Select
+						
+						Set sql_rs = CreateObject("ADODB.Recordset")
+						sql_rs.Open "SELECT account, name, rank FROM users WHERE id='" & banner_id & "';", sql_con
+						If Not sql_rs.EOF Then
+							banner_acc = sql_rs.Fields(0).Value
+							banner_name = sql_rs.Fields(1).Value
+							banner_rank_id = sql_rs.Fields(2).Value
+							Set sql_rs = CreateObject("ADODB.Recordset")
+							sql_rs.Open "SELECT name FROM ranks WHERE id=" & banner_rank_id & ";", sql_con
+							banner_rank_name = sql_rs.Fields(0).Value
+							
+							If rank_id > banner_rank_id Then
+								AddQ "/w *" & Account & " (*" & ban_acc & ") that was banned for " & banner_time_str & " by " & banner_rank_name & " " & banner_name & ". [Reason: " & banner_reason & "] has now been unbanned by " & rank_name & " " & name & "."
+							Else
+								If banner_id = user_id Then
+									AddQ "/w *" & Account & " (*" & ban_acc & ") that was banned for " & banner_time_str & " by " & banner_rank_name & " " & banner_name & ". [Reason: " & banner_reason & "] has now been unbanned by " & rank_name & " " & name & "."
+								Else
+									AddQ "/w *" & Account & " Sorry " & rank_name & " " & name & ", but you're not allowed to remove a ban made by " & banner_rank_name & " " & banner_name & "."
+									Exit Sub
+								End If
+							End If
+						Else
+							AddQ "/w *" & Account & " (*" & ban_acc & ") that was banned for " & banner_time_str & " by (User Not Found). [Reason: " & banner_reason & "] has now been unbanned by " & rank_name & " " & name & "."
+						End If
+						
+						sql_con.Execute("UPDATE bans SET expired='1' WHERE account='" & Replace(ban_acc, "'", "''") & "';")
+						AddQ "/unban *" & ban_acc
+					Else
+						AddQ "/w *" & Account & " Sorry " & rank_name & " " & name & ", but that account (*" & ban_acc & ") is not banned."
+					End If
+				End If
+		End Select
+	End If
+	
+	Set sql_rs = CreateObject("ADODB.Recordset")
+	sql_rs.Open "SELECT id FROM runners WHERE id=" & user_id & ";", sql_con
+	
+	If Not sql_rs.EOF Then
+		
+		
+		If Instr(Lcase(Message), "entered a diablo ii lord of destruction game called") > 0 _
+		OR InStr(Lcase(Message), "hat sich in ein diablo ii lord of destruction-spiel mit dem namen") > 0 _
+		OR InStr(Lcase(Message), "do diablo ii lord of destruction rozgrywki nazywanej") > 0 _
+		OR Instr(Lcase(Message), "ha entrado en una partida diablo ii lord of destruction llamada") > 0 _
+		OR Instr(Lcase(Message), "dans une partie diablo ii lord of destruction") > 0 _
+		OR InStr(lcase(Message), "connesso a una sessione di diablo ii lord of destruction chiamata") > 0 Then
+			If InStr(lcase(Message), "called") > 0 Then
+				Game = Split(lcase(Message), "called ")(1)
+				Game = Replace(Game, ".", "")
+			ElseIf InStr(lcase(Message), "namen") > 0 Then
+				Game = Split(lcase(Message), "namen ")(1)
+				Game = Replace(Game, " eingeklinkt.", "")
+			ElseIf InStr(lcase(Message), "nazywanej") > 0 Then
+				Game = Split(lcase(Message), "nazywanej ")(1)
+				Game = Replace(Game, ".", "")
+			ElseIf InStr(lcase(Message), "llamada") > 0 Then
+				Game = Split(lcase(Message), "llamada ")(1)
+				Game = Replace(Game, ".", "")
+			ElseIf InStr(lcase(Message), "partie") > 0 Then
+				Game = Split(lcase(Message), Space(1))(14)
+				Game = Replace(Game, ".", "")
+			ElseIf InStr(lcase(Message), "chiamata") > 0 Then
+				Game = Split(lcase(Message), "chiamata ")(1)
+				Game = Replace(Game, ".", "")
+			Else
+				Exit Sub
+			End If
+			
+			If InStr(Game, "baal") > 0 OR InStr(Game, lcase(ran_diablo)) Then
+				Call listgame(Username, Game)
+			Else
+				sql_con.Execute("DELETE FROM runners WHERE id=" & user_id & ";")
+				AddQ "/w *" & Account & " " & chr(34) & Game & chr(34) & " is not a run. Logging you out..."
+				AddQ "/f r " & Username
+			End If
+		Else
+			If InStr(lcase(Message), lcase(Username)) > 0 And InStr(lcase(Message), "battle.net") > 0 Then
+				sql_con.Execute("DELETE FROM runners WHERE id=" & user_id & ";")
+				AddQ "/f r " & Username
+			End If
+		End If
+	End If
+	
+	sql_con.Close()
+End Sub
+
+Sub Event_UserJoins(Username, Flags, Message, Ping, Product, Level, OriginalStatstring, Banned)
+	Dim sql_con
+	Set sql_con = CreateObject("ADODB.Connection")
+	sql_con.Open(sql_str)
+	
+	Dim Account, id, baal, chaos, baaltime, chaostime, Name, stats
+	Account = Username
+	
+	If InStr(Username, "#") > 0 Then
+		temp_a = Split(Username, "#")
+		Username = temp_a(0)
+	End If
+	
+	'If InStr(Username, "@") > 0 Then
+	'	temp_a = Split(Username, "@")
+	'	Username = temp_a(0)
+	'End If
+
+	Set sql_rs = CreateObject("ADODB.Recordset")
+	sql_rs.Open "SELECT newaccounts.id, users.account FROM newaccounts INNER JOIN users ON users.id = newaccounts.id WHERE newaccounts.account='" & Replace(lcase(Username), "'", "''") & "';", sql_con
+	
+	If Not sql_rs.EOF Then
+		sql_con.Execute("UPDATE bans SET account='" & Replace(lcase(Username), "'", "''") & "' WHERE account='" & sql_rs.Fields(1).Value & "';")
+		sql_con.Execute("UPDATE users SET account='" & Replace(lcase(Username), "'", "''") & "' WHERE id='" & sql_rs.Fields(0).Value & "';")
+		AddQ "/w *" & Account & " Your battle.net account change has been completed."
+		sql_con.Execute("DELETE FROM newaccounts WHERE id='" & sql_rs.Fields(0).Value & "';")
+	End If
+	
+	Set sql_rs = CreateObject("ADODB.Recordset")
+	sql_rs.Open "SELECT id, name, rank, baal, chaos, baaltime, chaostime, lvl, guild, post, lastchar, lastlvl FROM users WHERE account='" & Replace(lcase(Username), "'", "''") & "';", sql_con
+	If Not sql_rs.EOF Then
+		id = sql_rs.Fields(0).Value
+		name = sql_rs.Fields(1).Value
+		rank_id = sql_rs.Fields(2).Value
+		baal = sql_rs.Fields(3).Value
+		chaos = sql_rs.Fields(4).Value
+		baaltime = sql_rs.Fields(5).Value
+		chaostime = sql_rs.Fields(6).Value
+		lvl = sql_rs.Fields(7).Value
+		guild = sql_rs.Fields(8).Value
+		post = sql_rs.Fields(9).Value
+		lastchar = sql_rs.Fields(10).Value
+		lastlvl = sql_rs.Fields(11).Value
+		
+		If rank_id < 0 Then
+			AddQ "/ignore *" & Account
+			Exit Sub
+		End If
+		
+		Set sql_rs = CreateObject("ADODB.Recordset")
+		sql_rs.Open "SELECT name FROM ranks WHERE id=" & rank_id & ";", sql_con
+		
+		rank_name = sql_rs.Fields(0).Value
+		
+		If guild <> "" Then
+			rank_name = ran_guild_str & " " & rank_name
+		End If
+	Else
+		id = 0
+		name = ""
+	End If
+	
+	If isbanned(Account, Username) Then
+		Exit Sub
+	End If
+	
+	If Product = "D2XP" Then
+		OriginalStatstring = GetInternalDataByUsername(Account, 5)
+		stats = Split(OriginalStatstring, ",", 3)
+		If UBound(stats) > 0 Then
+			Level = Asc(Mid(stats(2), 26, 1))
+			If Asc(Mid(stats(2), 8, 1)) = 39 Then
+				If rank_id < ran_master_rank Then
+					sql_con.Execute("INSERT INTO bans (account, datetime, time, id, reason) VALUES ('" & Replace(Username, "'", "''") & "', '" & NowCalc(Now()) & "', '" & ran_ban_ondal & "', " & 0 & ", '" & "Autoban: Ondal" & "');")
+					If isbanned(Account, Username) Then
+						Exit Sub
+					End If
+				End If
+			End If
+			temp_a = Split(stats(1), "@")
+			charname = temp_a(0)
+		Else
+			charname = "Open Character"
+		End If
+		
+		'Non-Ladder banning, currently disabled.
+		'If charname <> "Open Character" And InStr(lcase(Message), "ladder") = 0 Then
+		'	If rank_id < ran_master_rank Then
+		'		sql_con.Execute("INSERT INTO bans (account, datetime, time, id, reason) VALUES ('" & Replace(Username, "'", "''") & "', '" & NowCalc(Now()) & "', '" & ran_ban_nonladder & "', " & 0 & ", '" & "Autoban: NonLadder" & "');")
+		'		If isbanned(Account, Username) Then
+		'			Exit Sub
+		'		End If
+		'	End If
+		'End If
+		
+		If InStr(lcase(Message), " hardcore") > 0 Then
+			If rank_id < ran_master_rank Then
+				sql_con.Execute("INSERT INTO bans (account, datetime, time, id, reason) VALUES ('" & Replace(Username, "'", "''") & "', '" & NowCalc(Now()) & "', '" & ran_ban_hardcore & "', " & 0 & ", '" & "Autoban: Hardcore" & "');")
+				If isbanned(Account, Username) Then
+					Exit Sub
+				End If
+			End If
+		End If
+		
+		If Level < ran_min_level Then
+			Dim lvlBan
+			
+			If guild <> "" And Level >= ran_guild_level Then
+				lvlBan = False
+			Else
+				lvlBan = True
+			End If
+			
+			If Level > 0 And charname <> "Open Character" And lvlBan = True Then
+				If rank_id < ran_lvl_rank Then
+					
+					If guild = "" Then
+						sql_con.Execute("INSERT INTO bans (account, datetime, time, id, reason) VALUES ('" & Replace(Username, "'", "''") & "', '" & NowCalc(Now()) & "', '" & ran_ban_lowlevel & "', " & 0 & ", '" & "Autoban: Level Requirement: " & ran_min_level & "');")
+					Else
+						sql_con.Execute("INSERT INTO bans (account, datetime, time, id, reason) VALUES ('" & Replace(Username, "'", "''") & "', '" & NowCalc(Now()) & "', '" & ran_ban_lowlevel & "', " & 0 & ", '" & "Autoban: Level Requirement: " & ran_guild_level & " (Guild-only)');")
+					End If
+					
+					If isbanned(Account, Username) Then
+						Exit Sub
+					End If
+				End If
+			Else
+				If id = 0 Then
+					AddQ "/ban *" & Account
+					Exit Sub
+				End If
+			End If
+		End If
+	Else
+		Select Case StrReverse(Left(OriginalStatstring, 4))
+			Case "DRTL": FullProduct = "Diablo I"
+			Case "DSHR": FullProduct = "Diablo I: Shareware"
+			Case "D2DV": FullProduct = "Diablo II: Classic"
+			Case "STAR": FullProduct = "Starcraft"
+			Case "SSHR": FullProduct = "Starcraft: Shareware"
+			Case "JSTR": FullProduct = "Starcraft: Japanese"
+			Case "SEXP": FullProduct = "Starcraft: Broodwar"
+			Case "W2BN": FullProduct = "Warcraft II: Battle.net Edition"
+			Case "WAR3": FullProduct = "Warcraft III: Reign of Chaos"
+			Case "W3XP": FullProduct = "Warcraft III: The Frozen Throne"
+			Case Else: FullProduct = StrReverse(Left(OriginalStatstring, 4))
+		End Select
+		
+		'sql_con.Execute("INSERT INTO bans (account, datetime, time, id, reason) VALUES ('" & Replace(Username, "'", "''") & "', '" & NowCalc(Now()) & "', '" & ran_ban_product & "', " & 0 & ", '" & "Autoban: Bad Product [" & FullProduct & "]" & "');")
+		'
+		'If isbanned(Account, Username) Then
+			Exit Sub
+		'End If
+	End If
+	
+	Set sql_rs = CreateObject("ADODB.Recordset")
+	sql_rs.Open "SELECT id, name, rank, baal, chaos, baaltime, chaostime, lvl FROM users WHERE account='" & Replace(lcase(Username), "'", "''") & "';", sql_con
+	If Not sql_rs.EOF Then
+		Set list_pm_rs = CreateObject("ADODB.Recordset")
+		list_pm_rs.Open "SELECT COUNT(id) FROM mail WHERE receiver=" & sql_rs.Fields(0).Value & " And unread=1 And notified=0;", sql_con
+		
+		If list_pm_rs.Fields(0).Value > 0 Then
+			AddQ "Welcome " & rank_name & " " & name & ", you have " & list_pm_rs.Fields(0).Value & " new message(s) waiting for you at www.ranbot.net"
+			sql_con.Execute("UPDATE mail SET notified=1 WHERE receiver='" & sql_rs.Fields(0).Value & "';")
+		End If
+		
+		If Level > lvl Then
+			sql_con.Execute("UPDATE users SET lvl=" & Level & " WHERE id=" & id & ";")
+		End If
+		
+		If (charname <> "Open Character") And (charname = lastchar) And (Level > lastlvl) Then
+			
+			If (Level >= ran_min_level) Or (charname = "RanBOT") Then
+				AddQ "/me Gz for lvl " & Level & ", " & rank_name & " " & name & "!"
+			End If
+		End If
+
+		sql_con.Execute("UPDATE users SET seendate='" & NowCalc(Now()) & "', lastchar='" & Replace(charname, "'", "''") & "', lastlvl='" & Level & "' WHERE id=" & id & ";")
+	Else
+		If charname <> "Open Character" Then
+			sql_con.Execute("INSERT INTO users (account, name, lvl, seendate, joindate) VALUES ('" & Replace(lcase(Username), "'", "''") & "', '" & Replace(charname, "'", "''") & "', " & Level & ", '" & NowCalc(Now()) & "', '" & NowCalc(Now()) & "');")
+			AddQ "Welcome to the " & BotVars.Username & " community, " & charname & "! Our homepage: www.ranbot.net"
+			Exit Sub
+		Else
+			AddQ "/ban *" & Account
+			Exit Sub
+		End If
+	End If
+	
+	Set sql_rs = CreateObject("ADODB.Recordset")
+	sql_rs.Open "SELECT name, num, time, done FROM runs WHERE id = " & id & ";", sql_con
+	If Not sql_rs.EOF Then
+		run_name = sql_rs.Fields(0).Value
+		run_num = sql_rs.Fields(1).Value
+		run_time = DateDiff("s", sql_rs.Fields(2).Value, Now())
+		run_done = sql_rs.Fields(3).Value
+
+		If run_done = 0 Then
+			If run_time > ran_runmin Then
+				If InStr(lcase(run_name), "baal") > 0 Then
+					sql_con.Execute("UPDATE users SET baal = " & baal + 1 & ", baaltime = " & baaltime + run_time & " WHERE id = " & id & ";")
+				ElseIf InStr(lcase(run_name), lcase(ran_diablo)) > 0 Then
+					sql_con.Execute("UPDATE users SET chaos = " & chaos + 1 & ", chaostime = " & chaostime + run_time & " WHERE id = " & id & ";")
+				End If
+			Else
+				AddQ "/w *" & Account & " " & run_name & run_num & " only lasted for " & run_time & " seconds, a run must last atleast " & int(ran_runmin / 60) & " minutes to be accounted for."
+			End If
+			sql_con.Execute("UPDATE runs SET done=" & run_time & " WHERE id=" & id & ";")
+		End If
+	End If
+	
+	Dim ranks_id, ranks_name, ranks_runs
+	Set sql_rs = CreateObject("ADODB.Recordset")
+	sql_rs.Open "SELECT id, name, runs FROM ranks ORDER BY id ASC;", sql_con
+	While Not sql_rs.EOF
+		ranks_id = sql_rs.Fields(0).Value
+		ranks_name = sql_rs.Fields(1).Value
+		ranks_runs = sql_rs.Fields(2).Value
+		
+		If ranks_id > rank_id And ranks_runs > 0 And baal+chaos+post >= ranks_runs Then
+			sql_con.Execute("UPDATE users SET rank=" & ranks_id & " WHERE id=" & id & ";")
+			AddQ rank_name & " " & name & " will be henceforth known as " & ranks_name & " " & name & "."
+			
+			rank_id = ranks_id
+			rank_name = ranks_name
+		End If
+		
+		sql_rs.MoveNext
+	Wend
+	
+	sql_con.Close()
+End Sub
+
+Sub Event_PressedEnter(Text)
+	If lcase(Text) = "/updateprofile" Then
+		VetoThisMessage
+		Call update_profile_timer()
+	End If
+End Sub
+
+Sub Event_ServerError(Message)
+	If Message = "That user is not logged on." Then
+		AddQ "/rejoin"
+	End If
+End Sub
+
+Sub Event_Close()
+End Sub
+
+Sub run_check_timer()
+	Dim sql_con
+	Set sql_con = CreateObject("ADODB.Connection")
+	sql_con.Open(sql_str)
+	
+	Dim run_id, run_name, run_num, run_time, temp_rs, host_acc
+	
+	Set sql_rs = CreateObject("ADODB.Recordset")
+	sql_rs.Open "SELECT id, name, num, time FROM runs WHERE done = 0;", sql_con
+	
+	While Not sql_rs.EOF
+		run_id = sql_rs.Fields(0).Value
+		run_name = sql_rs.Fields(1).Value
+		run_num = sql_rs.Fields(2).Value
+		run_time = DateDiff("s", sql_rs.Fields(3).Value, Now())
+		
+		If run_time > ran_runexp Then
+			sql_con.Execute("UPDATE runs SET done=-1 WHERE id=" & run_id & ";")
+			
+			Set temp_rs = CreateObject("ADODB.Recordset")
+			temp_rs.Open "SELECT account FROM users WHERE id = " & run_id & ";", sql_con
+			
+			If Not temp_rs.EOF Then
+				host_acc = temp_rs.Fields(0).Value
+				
+				AddQ "/w *" & host_acc & " " & run_name & run_num & " has lasted over " & int(ran_runexp / 60) & " minutes. No stats can be received for this run."
+			Else
+				sql_con.Execute("DELETE FROM runs WHERE id=" & run_id & ";")
+			End If
+		End If
+		
+		sql_rs.MoveNext
+	Wend
+	
+	sql_con.Close()
+End Sub
+
+Sub update_profile_timer()
+	Dim sql_con
+	Set sql_con = CreateObject("ADODB.Connection")
+	sql_con.Open(sql_str)
+	
+	If IsOnline() = True Then
+		Dim top_str, top_name, top_rank, top_stat, i
+		
+		top_str = ""
+		
+		top_name = ""
+		top_rank = 0
+		top_stat = 0
+		
+		i = 1
+		
+		Set sql_rs = CreateObject("ADODB.Recordset")
+		sql_rs.Open "SELECT TOP 5 users.name, ranks.name, users.baal+users.chaos+users.post FROM users INNER JOIN ranks ON users.rank=ranks.id WHERE users.rank>=0 ORDER BY users.baal+users.chaos+users.post DESC;", sql_con
+		
+			While Not sql_rs.EOF
+				top_name = sql_rs.Fields(0).Value
+				top_rank = sql_rs.Fields(1).Value
+				top_stat = sql_rs.Fields(2).Value
+				
+				top_str = top_str & i & ": ÿc8" & top_rank & " ÿc5" & top_name & " ÿc2(" & top_stat & ")" & chr(13) & chr(10)
+				i = i + 1
+				sql_rs.MoveNext
+			Wend
+		
+		SetBotProfile vbNullString, vbNullString, "ÿc:Top Scores" & chr(13) & chr(10) & top_str
+		
+		Set sql_rs = CreateObject("ADODB.Recordset")
+		sql_rs.Open "SELECT TOP 1 title, postdate, GETUTCDATE() As 'utc' FROM topics WHERE forum='1' And sticky<>'1' ORDER BY DATEDIFF(s, postdate, GETUTCDATE()) ASC;", sql_con
+		
+		If Not sql_rs.EOF Then
+			Dim postdate_str
+			Dim UTCNOW
+			UTCNOW = sql_rs.Fields(2).Value
+			
+			Select Case True
+				Case DateDiff("n", sql_rs.Fields("postdate").Value, UTCNOW) = 0 : postdate_str = DateDiff("s", sql_rs.Fields("postdate").Value, UTCNOW) & " seconds ago"
+	        	        Case DateDiff("h", sql_rs.Fields("postdate").Value, UTCNOW) = 0 : postdate_str = DateDiff("n", sql_rs.Fields("postdate").Value, UTCNOW) & " minutes ago"
+                		Case DateDiff("d", sql_rs.Fields("postdate").Value, UTCNOW) = 0 : postdate_str = DateDiff("h", sql_rs.Fields("postdate").Value, UTCNOW) & " hours ago"
+		                Case DateDiff("d", sql_rs.Fields("postdate").Value, UTCNOW) >= 1 : postdate_str = DateDiff("d", sql_rs.Fields("postdate").Value, UTCNOW) & " days ago"
+			End Select
+			
+			AddQ "[www.RanBOT.net] " & sql_rs.Fields(0).Value & " (" & postdate_str & ")"
+		Else
+			AddQ "[www.RanBOT.net] Join us on the web!"
+		End If
+	Else
+		AddChat vbRed, BotVars.Username & " is offline!"
+		AddChat vbYellow, "Connecting..."
+		Connect()
+	End If
+	
+	sql_con.Close()
+End Sub
+
+'ÿc8Help & Commands
+'ÿc3!rules - !help - !games - !info - !rank - !ranks
+'ÿc3!name (name) - !view (name / account)
+
+'ÿc5You gain ranks by hosting runs or posting on our
+'ÿc5forums @ ÿc7www.ranbot.net
+
+Sub ban_check_timer()
+	Dim sql_con
+	Set sql_con = CreateObject("ADODB.Connection")
+	sql_con.Open(sql_str)
+	
+	Dim account, banstamp, bantime
+	
+	Set sql_rs = CreateObject("ADODB.Recordset")
+	sql_rs.Open "SELECT account, datetime, time FROM bans WHERE time > 0 AND expired='0';", sql_con
+	
+	While Not sql_rs.EOF
+		account = sql_rs.Fields(0).Value
+		banstamp = sql_rs.Fields(1).Value
+		bantime = sql_rs.Fields(2).Value
+		
+		If DateDiff("s", banstamp, NowCalc(Now())) >= bantime Then
+			sql_con.Execute("UPDATE bans SET expired='1' WHERE account='" & Replace(account, "'", "''") & "';")
+			AddQ "/unban *" & account
+		End If
+		
+		sql_rs.MoveNext
+	Wend
+	
+	sql_con.Close()
+End Sub
+
+Sub runner_check_timer()
+	Dim sql_con
+	Set sql_con = CreateObject("ADODB.Connection")
+	sql_con.Open(sql_str)
+	
+	Set sql_rs = CreateObject("ADODB.Recordset")
+	sql_rs.Open "SELECT id FROM runners;", sql_con
+	
+	While Not sql_rs.EOF
+		runner_id = sql_rs.Fields(0).Value
+		
+		Set user_rs = CreateObject("ADODB.Recordset")
+		user_rs.Open "SELECT account, DATEDIFF(minute, seendate, GETDATE()), name, rank FROM users WHERE id=" & runner_id & ";", sql_con
+		
+		If Not user_rs.EOF Then
+			runner_acc = user_rs.Fields(0).Value
+			runner_seen = user_rs.Fields(1).Value
+			runner_name = user_rs.Fields(2).Value
+			runner_rank_id = user_rs.Fields(3).Value
+			
+			Set rank_rs = CreateObject("ADODB.Recordset")
+			rank_rs.Open "SELECT name FROM ranks WHERE id=" & runner_rank_id & ";", sql_con
+			
+			runner_rank_name = rank_rs.Fields(0).Value
+			
+			If runner_seen > 60 Then
+				AddChat vbRed, runner_rank_name & " " & runner_name & " (*" & runner_acc & ") has not been seen for an hour, removing from the runnerlist."
+				AddQ "/f r " & runner_acc
+				sql_con.Execute("DELETE FROM runners WHERE id=" & runner_id & ";")
+			End If
+		Else
+			AddChat vbRed, "Runner id (" & runner_id & ") was not found from the user database! Removing runner."
+			sql_con.Execute("DELETE FROM runners WHERE id=" & runner_id & ";")
+		End If
+		
+		sql_rs.MoveNext
+	Wend
+	
+	sql_con.Close()
+End Sub
+
+Sub channel_check_timer()
+	Dim sql_con
+	Set sql_con = CreateObject("ADODB.Connection")
+	sql_con.Open(sql_str)
+	
+	For i=1 To GetInternalUserCount()
+		Username = GetNameByPosition(i)
+		
+		'sql_con.Execute("UPDATE users SET seendate='" & NowCalc(Now) & "' WHERE account='" & Replace(Username, "'", "''") & "';")
+		
+		Flags = GetInternalDataByUsername(Username, 1)
+		If Flags <> 2 Then
+			TimeSinceTalk = GetInternalDataByUsername(Username, 7)
+			
+			If TimeSinceTalk >= ran_idlekick_time Then
+				Set sql_rs = CreateObject("ADODB.Recordset")
+				sql_rs.Open "SELECT rank FROM users WHERE account='" & Replace(Username, "'", "''") & "';", sql_con
+				
+				If Not sql_rs.EOF Then
+					user_rank_id = sql_rs.Fields(0).Value
+					
+					If user_rank_id < ran_idlekick_rank Then
+						Set rank_rs = CreateObject("ADODB.Recordset")
+						rank_rs.Open "SELECT name FROM ranks WHERE id=" & ran_idlekick_rank & ";", sql_con
+						
+						AddQ "/kick *" & Username & " AFK"
+						'AddQ "/kick *" & Username & " You must be ranked " & rank_rs.Fields(0).Value & "+ to be AFK for more than " & Round(ran_idlekick_time/60) & " min(s)."
+					End If
+				End If
+			End If
+		End If
+	Next
+	
+	sql_con.Close()
+End Sub
